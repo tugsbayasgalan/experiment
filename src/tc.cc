@@ -12,6 +12,8 @@
 #include "command_line.h"
 #include "graph.h"
 #include "pvector.h"
+//#include "inthash.h"
+#include "util.h"
 
 
 /*
@@ -43,20 +45,81 @@ to relabel the graph, we use the heuristic in WorthRelabelling.
 */
 #define USEHASH 1
 
+// julian's hash table
+//typedef ETable<hashInt<uint>, uintT> intTable;
+
+
 using namespace std;
 
+
+// size_t OrderedCountHashJulian(const Graph &g){
+//   size_t total = 0;
+//   int64_t num_nodes = g.num_nodes();
+
+//   uint* A = newA(uint,totalSize);
+
+//   intTable* TA = newA(intTable,num_nodes);
+
+//   #pragma omp parallel for schedule(dynamic, 64)
+//   for(NodeID i = 0; i < num_nodes; i++){
+//     auto size = g.out_neigh(i).end() - g.out_neigh(i).begin();
+
+
+//   }
+
+// }
+
 size_t OrderedCountHash(const Graph &g) {
+
+  unordered_map<NodeID, unordered_map<NodeID, int>> neighbor_tables = unordered_map<NodeID, unordered_map<NodeID, int>>();
   size_t total = 0;
+  int64_t num_nodes = g.num_nodes();
+
+  // #pragma omp parallel
+  // {
+
+    
+  //   unordered_map<NodeID, unordered_map<NodeID, int>> local_tables;
+  //   for(NodeID i=0; i < num_nodes; i++){
+
+  //     //neighbor_tables[i] = unordered_map<NodeID, int>();
+  //     unordered_map<NodeID, int> u_neighbors;
+  //     #pragma omp parallel for schedule(dynamic, 1024)
+  //     for(auto j = g.out_neigh(i).begin(); j < g.out_neigh(i).end(); j++){
+  //       u_neighbors.insert(pair <NodeID, int> (*j, 1));
+  //     }
+
+    
+  //     local_tables.insert(pair<NodeID, unordered_map<NodeID, int>>(i, u_neighbors));
+
+  //   }
+
+  //   #pragma omp critical
+  //   neighbor_tables.insert(local_tables.begin(), local_tables.end());
+
+
+
+  // }
+
+  #pragma omp parallel for schedule(dynamic, 64)
+  for(NodeID i=0; i < num_nodes; i++){
+
+    //neighbor_tables[i] = unordered_map<NodeID, int>();
+    unordered_map<NodeID, int> u_neighbors;
+    //#pragma omp parallel for reduction(+ : total) schedule(dynamic, 1024)
+    for(auto j = g.out_neigh(i).begin(); j < g.out_neigh(i).end(); j++){
+      u_neighbors.insert(pair <NodeID, int> (*j, 1));
+    }
+
+    #pragma omp critical
+    neighbor_tables.insert(pair<NodeID, unordered_map<NodeID, int>>(i, u_neighbors));
+    
+
+  }
+
   #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
   for (NodeID u=0; u < g.num_nodes(); u++) {
-    unordered_map<NodeID, int> u_neighbors;
-    auto it_begin = g.out_neigh(u).begin();
-    auto it_end = g.out_neigh(u).end();
-    while (it_begin < it_end){
-        u_neighbors.insert(pair <NodeID, int> (*it_begin, 1));
-        it_begin++;
-
-    }
+  
     for (NodeID v : g.out_neigh(u)) {
       if (v > u)
         break;
@@ -66,7 +129,7 @@ size_t OrderedCountHash(const Graph &g) {
         if (w > v)
           break;
 
-        if (u_neighbors.find(w) != u_neighbors.end()){
+        if (neighbor_tables[u].find(w) != neighbor_tables[u].end()){
             total++;
         }
       }
