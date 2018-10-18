@@ -12,7 +12,7 @@
 #include "command_line.h"
 #include "graph.h"
 #include "pvector.h"
-//#include "inthash.h"
+#include "inthash.h"
 #include "util.h"
 
 
@@ -46,28 +46,86 @@ to relabel the graph, we use the heuristic in WorthRelabelling.
 #define USEHASH 1
 
 // julian's hash table
-//typedef ETable<hashInt<uint>, uintT> intTable;
+typedef ETable<hashInt<uint>, uintT> intTable;
 
 
 using namespace std;
 
 
-// size_t OrderedCountHashJulian(const Graph &g){
-//   size_t total = 0;
-//   int64_t num_nodes = g.num_nodes();
+size_t OrderedCountHashJulian(const Graph &g){
+  size_t total = 0;
+  int64_t num_nodes = g.num_nodes();
 
-//   uint* A = newA(uint,totalSize);
+  //compute hash table offsets
+  uintT* hoffsets = newA(uintT,num_nodes+1);
+  parallel_for(uintT i=0;i<num_nodes;i++) {
+    auto size = g.out_neigh(i).end() - g.out_neigh(i).begin();
+    hoffsets[i] = 1 << (utils::log2Up((uintT)(size + 1))); 
+  }
+  hoffsets[num_nodes] = 0;
+  //creating one big array for all hashes
+  uintT totalSize = sequence::plusScan(hoffsets,hoffsets,num_nodes+1);
+  uint* A = newA(uint,totalSize);
 
-//   intTable* TA = newA(intTable,num_nodes);
+  intTable* TA = newA(intTable,num_nodes);
+  #pragma omp parallel for schedule(dynamic, 64)
+  for(long s=0;s<num_nodes;s++) {
+    uintT size = hoffsets[s+1]-hoffsets[s];
+    TA[s] = intTable(size, hashInt<uint>(), A+hoffsets[s]);
+  }
+  
 
-//   #pragma omp parallel for schedule(dynamic, 64)
-//   for(NodeID i = 0; i < num_nodes; i++){
-//     auto size = g.out_neigh(i).end() - g.out_neigh(i).begin();
+  //everyone inserts neigbors
+  #pragma omp parallel for schedule(dynamic, 64)
+  for (uintT s=0;s<num_nodes;s++) {
+
+    uintT d = hoffsets[s];
+    if(d > 10000) {
+      #pragma omp parallel for schedule(dynamic, 64)
+      for(auto j = g.out_neigh(s).begin(); j < g.out_neigh(s).end(); j++){
+        TA[s].insert(*j);
+      }
+
+    }
+
+    else {
+      for(auto j = g.out_neigh(s).begin(); j < g.out_neigh(s).end(); j++){
+        TA[s].insert(*j);
+      }
+    }
+    
+      
+  }
+
+  free(hoffsets);
+
+  #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
+  for (NodeID u=0; u < g.num_nodes(); u++) {
+  
+    for (NodeID v : g.out_neigh(u)) {
+      if (v > u)
+        break;
+      
+
+      for (NodeID w : g.out_neigh(v)) {
+        if (w > v)
+          break;
+
+        if (TA[u].find(w)){
+            total++;
+        }
+      }
+    }
+  }
+  free(TA);
+  free(A);
+  return total;
 
 
-//   }
 
-// }
+
+ 
+}
 
 size_t OrderedCountHash(const Graph &g) {
 
@@ -186,14 +244,14 @@ size_t Hybrid(const Graph &g) {
 
   if (WorthRelabelling(g)) {
       #if USEHASH==1
-          return OrderedCountHash(Builder::RelabelByDegree(g));
+          return OrderedCountHashJulian(Builder::RelabelByDegree(g));
       #else
           return OrderedCount(Builder::RelabelByDegree(g));
       #endif
 
   } else {
       #if USEHASH==1
-        return OrderedCountHash(g);
+        return OrderedCountHashJulian(g);
       #else
         return OrderedCount(g);
       #endif
