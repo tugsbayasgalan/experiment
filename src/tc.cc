@@ -6,6 +6,8 @@
 #include <iostream>
 #include <vector>
 #include <unordered_map>
+#include <atomic>
+#include <assert.h>
 
 #include "benchmark.h"
 #include "builder.h"
@@ -151,7 +153,6 @@ using namespace std;
 size_t OrderedCountHashJulian(const Graph &g){
   size_t total = 0;
   int64_t num_nodes = g.num_nodes();
-
   //compute hash table offsets
   uintT* hoffsets = newA(uintT,num_nodes+1);
   parallel_for(uintT i=0;i<num_nodes;i++) {
@@ -194,34 +195,31 @@ size_t OrderedCountHashJulian(const Graph &g){
 
   #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
   for (NodeID u=0; u < g.num_nodes(); u++) {
-    size_t currentCount;
-    if (g.out_degree(u) > 10000) {
-      uint countArray[g.out_degree(u)];
-      volatile bool flag=false;
-      #pragma omp parallel for schedule(dynamic, 64)
+    if (g.out_degree(u) > 100) {
+      volatile bool flag = false;
+      size_t localCount = 0;
+      #pragma omp parallel for shared(flag) reduction(+ : localCount) schedule(dynamic, 64)
       for (auto v = g.out_neigh(u).begin(); v < g.out_neigh(u).end(); v++) {
         if(flag) continue;
+        //if v is greater than u, we want to exit (used flag since openmp doesn't like break)
         if (*v > u)
-          flag=true;
+          #pragma omp critical
+          flag = true;
         for (NodeID w : g.out_neigh(*v)) {
           if (w > *v)
             break;
-
-          if (TA[u].find(w)){
-              countArray[*v]++;
+          if (TA[u].find(w)){ 
+             localCount++;
           }
         }
       }
-      currentCount = sequence::plusScan(countArray,countArray,g.out_degree(u)+1);
-
-
-    } else {
+      total += localCount;
+    } 
+    else {
       size_t localCount = 0;
       for (NodeID v : g.out_neigh(u)) {
         if (v > u)
           break;
-        
-
         for (NodeID w : g.out_neigh(v)) {
           if (w > v)
             break;
@@ -232,10 +230,8 @@ size_t OrderedCountHashJulian(const Graph &g){
         }
       }
 
-      currentCount = localCount;
+      total += localCount;
     }
-
-    total += currentCount;
 
   }
   free(TA);
@@ -302,8 +298,6 @@ size_t OrderedCountHash(const Graph &g) {
     for (NodeID v : g.out_neigh(u)) {
       if (v > u)
         break;
-      
-
       for (NodeID w : g.out_neigh(v)) {
         if (w > v)
           break;

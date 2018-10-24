@@ -12,6 +12,10 @@ ifneq (,$(findstring sunCC,$(CXX)))
 	PAR_FLAG = -xopenmp
 endif
 
+ifneq ($(DEBUG), 1)
+	CXX_FLAGS = -std=c++11 -O3 -Wall -g
+endif
+
 ifneq ($(SERIAL), 1)
 	CXX_FLAGS += $(PAR_FLAG)
 endif
