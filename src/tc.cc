@@ -44,12 +44,108 @@ degree distribution is sufficiently non-uniform. To decide whether or not
 to relabel the graph, we use the heuristic in WorthRelabelling.
 */
 #define USEHASH 1
+#define CHUNK_SIZE 32
 
 // julian's hash table
 typedef ETable<hashInt<uint>, uintT> intTable;
 
 
 using namespace std;
+
+
+// size_t OrderedCountHashJulian(const Graph &g){
+//   int64_t num_nodes = g.num_nodes();
+//   //compute hash table offsets
+//   uintT* hoffsets = newA(uintT,num_nodes+1);
+//   parallel_for(uintT i=0;i<num_nodes;i++) {
+//     auto size = g.out_neigh(i).end() - g.out_neigh(i).begin();
+//     hoffsets[i] = 1 << (utils::log2Up((uintT)(size + 1))); 
+//   }
+//   hoffsets[num_nodes] = 0;
+//   //creating one big array for all hashes
+//   uintT totalSize = sequence::plusScan(hoffsets,hoffsets,num_nodes+1);
+//   uint* A = newA(uint,totalSize);
+
+//   intTable* TA = newA(intTable,num_nodes);
+//   #pragma omp parallel for schedule(static, CHUNK_SIZE)
+//   for(long s=0;s<num_nodes;s++) {
+//     uintT size = hoffsets[s+1]-hoffsets[s];
+//     TA[s] = intTable(size, hashInt<uint>(), A+hoffsets[s]);
+//   }
+  
+
+//   //everyone inserts neigbors
+//   #pragma omp parallel for schedule(static, CHUNK_SIZE)
+//   for (uintT s=0;s<num_nodes;s++) {
+//     uintT d = hoffsets[s];
+//     if(d > 10000) {
+//       #pragma omp parallel for schedule(static, CHUNK_SIZE)
+//       for(auto j = g.out_neigh(s).begin(); j < g.out_neigh(s).end(); j++){
+//         TA[s].insert(*j);
+//       }
+
+//     }
+//     else {
+//       for(auto j = g.out_neigh(s).begin(); j < g.out_neigh(s).end(); j++){
+//         TA[s].insert(*j);
+//       }
+//     }   
+//   }
+//   size_t total = 0;
+//   #pragma omp parallel for reduction(+ : total) schedule(dynamic, CHUNK_SIZE)
+//   for (NodeID u=0; u < g.num_nodes(); u++) {
+//     //if degree > 10000 execute parallel
+//     size_t currentCount;
+//     if (g.out_degree(u) > 10000) {
+//       //to keep track of count for each node (this will be reduced)
+//       uint countArray[g.out_degree(u)];
+//       #pragma omp parallel for schedule(dynamic, CHUNK_SIZE)
+//       for (NodeID v : g.out_neigh(u)) {
+//         if (v > u) 
+//           //figure out how break works
+//           break;
+        
+//         for (NodeID w : g.out_neigh(v)) {
+//           if (w > v)
+//             break;
+//           if (TA[u].find(w)){
+//               countArray[v]++;
+//           }
+//         }
+//       }
+//       currentCount = sequence::plusScan(countArray,countArray,g.out_degree(u)+1);
+//       free(countArray);
+//     } 
+//     else {
+//       size_t localCount = 0;
+//       for (NodeID v : g.out_neigh(u)) {
+//         if (v > u) {
+//           //figure out how break works
+//           break;
+//         }
+
+//         for (NodeID w : g.out_neigh(v)) {
+//           if (w > v)
+//             break;
+
+//           if (TA[u].find(w)){
+//               localCount++;
+//           }
+//         }
+//       }
+//       currentCount = localCount;
+//     }
+
+//     total += currentCount;
+ 
+//   }
+
+//   free(TA);
+//   free(A);
+
+//   return total;
+
+// }
 
 
 size_t OrderedCountHashJulian(const Graph &g){
@@ -78,7 +174,6 @@ size_t OrderedCountHashJulian(const Graph &g){
   //everyone inserts neigbors
   #pragma omp parallel for schedule(dynamic, 64)
   for (uintT s=0;s<num_nodes;s++) {
-
     uintT d = hoffsets[s];
     if(d > 10000) {
       #pragma omp parallel for schedule(dynamic, 64)
@@ -87,7 +182,6 @@ size_t OrderedCountHashJulian(const Graph &g){
       }
 
     }
-
     else {
       for(auto j = g.out_neigh(s).begin(); j < g.out_neigh(s).end(); j++){
         TA[s].insert(*j);
@@ -96,26 +190,53 @@ size_t OrderedCountHashJulian(const Graph &g){
     
       
   }
-
   free(hoffsets);
 
   #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
   for (NodeID u=0; u < g.num_nodes(); u++) {
-  
-    for (NodeID v : g.out_neigh(u)) {
-      if (v > u)
-        break;
-      
+    size_t currentCount;
+    if (g.out_degree(u) > 10000) {
+      uint countArray[g.out_degree(u)];
+      volatile bool flag=false;
+      #pragma omp parallel for schedule(dynamic, 64)
+      for (auto v = g.out_neigh(u).begin(); v < g.out_neigh(u).end(); v++) {
+        if(flag) continue;
+        if (*v > u)
+          flag=true;
+        for (NodeID w : g.out_neigh(*v)) {
+          if (w > *v)
+            break;
 
-      for (NodeID w : g.out_neigh(v)) {
-        if (w > v)
-          break;
-
-        if (TA[u].find(w)){
-            total++;
+          if (TA[u].find(w)){
+              countArray[*v]++;
+          }
         }
       }
+      currentCount = sequence::plusScan(countArray,countArray,g.out_degree(u)+1);
+
+
+    } else {
+      size_t localCount = 0;
+      for (NodeID v : g.out_neigh(u)) {
+        if (v > u)
+          break;
+        
+
+        for (NodeID w : g.out_neigh(v)) {
+          if (w > v)
+            break;
+
+          if (TA[u].find(w)){
+              localCount++;
+          }
+        }
+      }
+
+      currentCount = localCount;
     }
+
+    total += currentCount;
+
   }
   free(TA);
   free(A);
@@ -127,12 +248,13 @@ size_t OrderedCountHashJulian(const Graph &g){
  
 }
 
+
+
 size_t OrderedCountHash(const Graph &g) {
 
   unordered_map<NodeID, unordered_map<NodeID, int>> neighbor_tables = unordered_map<NodeID, unordered_map<NodeID, int>>();
   size_t total = 0;
   int64_t num_nodes = g.num_nodes();
-
   // #pragma omp parallel
   // {
 
@@ -171,8 +293,7 @@ size_t OrderedCountHash(const Graph &g) {
 
     #pragma omp critical
     neighbor_tables.insert(pair<NodeID, unordered_map<NodeID, int>>(i, u_neighbors));
-    
-
+  
   }
 
   #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
