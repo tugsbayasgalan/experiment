@@ -47,6 +47,7 @@ to relabel the graph, we use the heuristic in WorthRelabelling.
 */
 #define USEHASH 1
 #define CHUNK_SIZE 32
+#define PAR_THRESHOLD 500
 
 // julian's hash table
 typedef ETable<hashInt<uint>, uintT> intTable;
@@ -151,7 +152,6 @@ using namespace std;
 
 
 size_t OrderedCountHashJulian(const Graph &g){
-  size_t total = 0;
   int64_t num_nodes = g.num_nodes();
   //compute hash table offsets
   uintT* hoffsets = newA(uintT,num_nodes+1);
@@ -192,28 +192,41 @@ size_t OrderedCountHashJulian(const Graph &g){
       
   }
   free(hoffsets);
-
+  size_t total = 0;
   #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
   for (NodeID u=0; u < g.num_nodes(); u++) {
-    if (g.out_degree(u) > 100) {
-      volatile bool flag = false;
+    if (g.out_degree(u) > PAR_THRESHOLD) {
       size_t localCount = 0;
-      #pragma omp parallel for shared(flag) reduction(+ : localCount) schedule(dynamic, 64)
-      for (auto v = g.out_neigh(u).begin(); v < g.out_neigh(u).end(); v++) {
-        if(flag) continue;
-        //if v is greater than u, we want to exit (used flag since openmp doesn't like break)
-        if (*v > u)
-          #pragma omp critical
-          flag = true;
-        for (NodeID w : g.out_neigh(*v)) {
-          if (w > *v)
-            break;
-          if (TA[u].find(w)){ 
-             localCount++;
+      auto v = g.out_neigh(u).begin();
+      #pragma omp parallel private(v) reduction(+ : localCount) 
+      {
+        for (v = g.out_neigh(u).begin(); v != g.out_neigh(u).end(); v++) {
+        //for (NodeID v : g.out_neigh(u)) {
+
+            //else {
+                //if v is greater than u, we want to exit (used flag since openmp doesn't like break)
+          if (*v <= u) {
+            for (NodeID w : g.out_neigh(*v)) {
+              if (w > *v)
+                break;
+              if (TA[u].find(w)){ 
+                  localCount++;
+              }
+            }
+
           }
+                  //#pragma omp critical
+                  //flag = true;
+                
+
+            //}
+          
+          
         }
       }
+
       total += localCount;
+
     } 
     else {
       size_t localCount = 0;
