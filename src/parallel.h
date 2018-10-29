@@ -3,7 +3,7 @@
 
 // cilkarts cilk++
 #if defined(CILK)
-#include <cilk.h>
+#include <cilk/cilk.h>
 #include <cassert>
 #define parallel_main cilk_main
 #define parallel_for cilk_for
