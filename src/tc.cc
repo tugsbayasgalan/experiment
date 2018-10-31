@@ -5,13 +5,14 @@
 #include <cinttypes>
 #include <iostream>
 #include <vector>
-#include <unordered_map>
 
 #include "benchmark.h"
 #include "builder.h"
 #include "command_line.h"
 #include "graph.h"
 #include "pvector.h"
+#include "inthash.h"
+#include "util.h"
 
 
 /*
@@ -41,39 +42,9 @@ degree. This is beneficial if the average degree is high enough and if the
 degree distribution is sufficiently non-uniform. To decide whether or not
 to relabel the graph, we use the heuristic in WorthRelabelling.
 */
-#define USEHASH 1
+
 
 using namespace std;
-
-size_t OrderedCountHash(const Graph &g) {
-  size_t total = 0;
-  #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
-  for (NodeID u=0; u < g.num_nodes(); u++) {
-    unordered_map<NodeID, int> u_neighbors;
-    auto it_begin = g.out_neigh(u).begin();
-    auto it_end = g.out_neigh(u).end();
-    while (it_begin < it_end){
-        u_neighbors.insert(pair <NodeID, int> (*it_begin, 1));
-        it_begin++;
-
-    }
-    for (NodeID v : g.out_neigh(u)) {
-      if (v > u)
-        break;
-      
-
-      for (NodeID w : g.out_neigh(v)) {
-        if (w > v)
-          break;
-
-        if (u_neighbors.find(w) != u_neighbors.end()){
-            total++;
-        }
-      }
-    }
-  }
-  return total;
-}
 
 size_t OrderedCount(const Graph &g) {
   size_t total = 0;
@@ -95,7 +66,6 @@ size_t OrderedCount(const Graph &g) {
   }
   return total;
 }
-
 
 
 // heuristic to see if sufficently dense power-law graph
@@ -120,23 +90,10 @@ bool WorthRelabelling(const Graph &g) {
 
 // uses heuristic to see if worth relabeling
 size_t Hybrid(const Graph &g) {
-
-  if (WorthRelabelling(g)) {
-      #if USEHASH==1
-          return OrderedCountHash(Builder::RelabelByDegree(g));
-      #else
-          return OrderedCount(Builder::RelabelByDegree(g));
-      #endif
-
-  } else {
-      #if USEHASH==1
-        return OrderedCountHash(g);
-      #else
-        return OrderedCount(g);
-      #endif
-
-  }
-
+  if (WorthRelabelling(g))
+    return OrderedCount(Builder::RelabelByDegree(g));
+  else
+    return OrderedCount(g);
 }
 
 
