@@ -46,6 +46,58 @@ to relabel the graph, we use the heuristic in WorthRelabelling.
 
 using namespace std;
 
+bool inline BinarySearch(NodeID* it_begin, size_t total, NodeID target) {
+
+  long int left = 0;
+  long int right = total-1;
+  while(left <= right) {
+
+    long int medium = left + ((right - left) / 2);
+    NodeID current = *(it_begin + medium);
+
+    if (current == target){
+      it_begin += medium;
+      return true;
+    }
+
+    if (current < target){
+      left = medium + 1;
+    } 
+
+    else {
+      right = medium - 1;
+    }
+
+  }
+
+  return false;
+
+
+}
+
+size_t OrderedCountBinary(const Graph &g){
+  size_t total = 0;
+  #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
+  for (NodeID u=0; u < g.num_nodes(); u++) {
+    for (NodeID v : g.out_neigh(u)) {
+      if (v > u)
+        break;
+      auto it = g.out_neigh(u).begin();
+      size_t totalDegree = g.out_degree(u);
+      for (NodeID w : g.out_neigh(v)) {
+        if (w > v)
+          break;
+        
+        bool result = BinarySearch(it, totalDegree, w);
+        if (result)
+          total++;
+      }
+    }
+  }
+  return total;
+  
+}
+
 size_t OrderedCount(const Graph &g) {
   size_t total = 0;
   #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
@@ -91,9 +143,9 @@ bool WorthRelabelling(const Graph &g) {
 // uses heuristic to see if worth relabeling
 size_t Hybrid(const Graph &g) {
   if (WorthRelabelling(g))
-    return OrderedCount(Builder::RelabelByDegree(g));
+    return OrderedCountBinary(Builder::RelabelByDegree(g));
   else
-    return OrderedCount(g);
+    return OrderedCountBinary(g);
 }
 
 
