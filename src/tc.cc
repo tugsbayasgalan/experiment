@@ -83,7 +83,7 @@ long int inline BinarySearch(NodeID* it_begin, long int start, size_t total, Nod
 
 size_t OrderedCountBinary(const Graph &g){
   size_t total = 0;
-  int skip_step = 2;
+  //int skip_step = 2;
   #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
   for (NodeID u=0; u < g.num_nodes(); u++) {
     size_t totalDegreeU = g.out_degree(u);
@@ -123,7 +123,7 @@ size_t OrderedCountBinary(const Graph &g){
 
           while (*it < w){
             
-            it += skip_step;
+            it += 2;
 
           }
 
@@ -136,20 +136,29 @@ size_t OrderedCountBinary(const Graph &g){
             total++;
           } 
           else {
-            it -= skip_step;
-            int i = skip_step;
-            while (i > 0){
-              it--;
-              i--;
-              if(it >= ref){
-                if(*it == w){
-                  total++;
-                  break;
-                }
+            it--;
+            if(it >= ref){
+              if(*it == w){
+                total++;
               }
             }
 
-            it += skip_step-i;
+            it++;
+
+            // it -= skip_step;
+            // int i = skip_step;
+            // while (i > 0){
+            //   it--;
+            //   i--;
+            //   if(it >= ref){
+            //     if(*it == w){
+            //       total++;
+            //       break;
+            //     }
+            //   }
+            // }
+
+            // it += skip_step-i;
   
           }
 
