@@ -5,6 +5,10 @@
 #include <cinttypes>
 #include <iostream>
 #include <vector>
+#include <fstream>
+//#include <emmintrin.h>
+//#include <x86intrin.h>
+//#include <smmintrin.h>
 
 #include "benchmark.h"
 #include "builder.h"
@@ -45,19 +49,19 @@ to relabel the graph, we use the heuristic in WorthRelabelling.
 
 
 using namespace std;
+//function that computes the intersection of two sorted lists
 
-bool inline BinarySearch(NodeID* it_begin, size_t total, NodeID target) {
+long int inline BinarySearch(NodeID* it_begin, long int start, size_t total, NodeID target) {
 
-  long int left = 0;
+  long int left = start == -1? 0 : start;
   long int right = total-1;
   while(left <= right) {
 
-    long int medium = left + ((right - left) / 2);
+    long int medium = left + ((right - left) >> 2);
     NodeID current = *(it_begin + medium);
 
     if (current == target){
-      it_begin += medium;
-      return true;
+      return left;
     }
 
     if (current < target){
@@ -70,30 +74,89 @@ bool inline BinarySearch(NodeID* it_begin, size_t total, NodeID target) {
 
   }
 
-  return false;
+  return -1;
 
 
 }
 
+
+
 size_t OrderedCountBinary(const Graph &g){
   size_t total = 0;
+  int skip_step = 2;
   #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
   for (NodeID u=0; u < g.num_nodes(); u++) {
+    size_t totalDegreeU = g.out_degree(u);
     for (NodeID v : g.out_neigh(u)) {
       if (v > u)
         break;
       auto it = g.out_neigh(u).begin();
-      size_t totalDegree = g.out_degree(u);
-      for (NodeID w : g.out_neigh(v)) {
-        if (w > v)
-          break;
-        
-        bool result = BinarySearch(it, totalDegree, w);
-        if (result)
-          total++;
-      }
+      auto ref = g.out_neigh(u).begin();
+      auto end = g.out_neigh(u).end();
+      auto totalDegreeV = g.out_degree(v);
+      
+      if (totalDegreeU > 10000 && totalDegreeU < 0.01*totalDegreeV){
+        int start = 0;
+        int prevStart = 0;
+        for (NodeID w : g.out_neigh(v)) {
+          if (w > v)
+            break;
+          start = BinarySearch(it, start, totalDegreeU, w);
+          
+          if (start >= 0) {
+            prevStart = start;
+            total++;
+
+          }
+          else {
+            start = prevStart;
+          }
+
+        }
+
+      } 
+      else {
+        //This is multi increment
+        for (NodeID w : g.out_neigh(v)) {
+          if (w > v)
+            break;
+
+          while (*it < w){
+            
+            it += skip_step;
+
+          }
+
+          if (it >= end){
+            it = end - 1;
+          }
+
+
+          if(*it == w){
+            total++;
+          } 
+          else {
+            it -= skip_step;
+            int i = skip_step;
+            while (i > 0){
+              it--;
+              i--;
+              if(it >= ref){
+                if(*it == w){
+                  total++;
+                  break;
+                }
+              }
+            }
+
+            it += skip_step-i;
+  
+          }
+
+        }
     }
-  }
+  }}
+ 
   return total;
   
 }
