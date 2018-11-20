@@ -57,7 +57,7 @@ long int inline BinarySearch(NodeID* it_begin, long int start, size_t total, Nod
   long int right = total-1;
   while(left <= right) {
 
-    long int medium = left + ((right - left) >> 2);
+    long int medium = left + ((right - left) >> 1);
     NodeID current = *(it_begin + medium);
 
     if (current == target){
@@ -83,10 +83,11 @@ long int inline BinarySearch(NodeID* it_begin, long int start, size_t total, Nod
 
 size_t OrderedCountBinary(const Graph &g){
   size_t total = 0;
-  //int skip_step = 2;
   #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
   for (NodeID u=0; u < g.num_nodes(); u++) {
     size_t totalDegreeU = g.out_degree(u);
+    size_t binaryCount = 0;
+    size_t otherCount = 0;
     for (NodeID v : g.out_neigh(u)) {
       if (v > u)
         break;
@@ -94,18 +95,21 @@ size_t OrderedCountBinary(const Graph &g){
       auto ref = g.out_neigh(u).begin();
       auto end = g.out_neigh(u).end();
       auto totalDegreeV = g.out_degree(v);
-      
-      if (totalDegreeU > 10000 && totalDegreeU < 0.01*totalDegreeV){
+      auto it_v = g.out_neigh(v).begin();
+      //if the relative size is small, we perform binary search
+      //TODO there is a double counting issue
+      if (totalDegreeU > 1000 && totalDegreeU < 0.2*totalDegreeV){
         int start = 0;
         int prevStart = 0;
-        for (NodeID w : g.out_neigh(v)) {
-          if (w > v)
+        for (NodeID u_neighbor : g.out_neigh(u)) {
+          if (u_neighbor > u)
             break;
-          start = BinarySearch(it, start, totalDegreeU, w);
+
+          start = BinarySearch(it_v, start, totalDegreeV, u_neighbor);
           
           if (start >= 0) {
             prevStart = start;
-            total++;
+            binaryCount++;    
 
           }
           else {
@@ -113,58 +117,48 @@ size_t OrderedCountBinary(const Graph &g){
           }
 
         }
-
+ 
       } 
+      //if not, we just do normal set intersection
       else {
+        
         //This is multi increment
         for (NodeID w : g.out_neigh(v)) {
           if (w > v)
             break;
-
+          // we increment by 2 to make sure we skip unneccesary checks 
           while (*it < w){
-            
             it += 2;
 
           }
-
+          // avoid out of bound problem
           if (it >= end){
             it = end - 1;
           }
 
 
           if(*it == w){
-            total++;
+            otherCount++;
           } 
           else {
+            //roll back by 1
             it--;
             if(it >= ref){
               if(*it == w){
-                total++;
+                otherCount++;
               }
             }
-
             it++;
 
-            // it -= skip_step;
-            // int i = skip_step;
-            // while (i > 0){
-            //   it--;
-            //   i--;
-            //   if(it >= ref){
-            //     if(*it == w){
-            //       total++;
-            //       break;
-            //     }
-            //   }
-            // }
-
-            // it += skip_step-i;
-  
           }
 
         }
+      }
+
     }
-  }}
+
+    total += (binaryCount >> 1) + otherCount;
+  }
  
   return total;
   
