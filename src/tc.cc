@@ -6,8 +6,8 @@
 #include <iostream>
 #include <vector>
 #include <fstream>
-//#include <emmintrin.h>
-//#include <x86intrin.h>
+#include <emmintrin.h>
+#include <x86intrin.h>
 //#include <smmintrin.h>
 
 #include "benchmark.h"
@@ -15,7 +15,6 @@
 #include "command_line.h"
 #include "graph.h"
 #include "pvector.h"
-#include "inthash.h"
 #include "util.h"
 
 
@@ -49,7 +48,6 @@ to relabel the graph, we use the heuristic in WorthRelabelling.
 
 
 using namespace std;
-//function that computes the intersection of two sorted lists
 
 long int inline BinarySearch(NodeID* it_begin, long int start, size_t total, NodeID target) {
 
@@ -79,90 +77,331 @@ long int inline BinarySearch(NodeID* it_begin, long int start, size_t total, Nod
 
 }
 
+void print_m128(__m128i value, char c) {
+    uint16_t *val = (uint16_t*) &value;
+    for(int i = 0; i < 8; i++){
+      cout << c << val[i];
+      
+    }
+    cout << '\n';
+    
+}
 
 
-size_t OrderedCountBinary(const Graph &g){
+uint16_t high16(uint32_t x) { return uint16_t(x >> 16); }
+
+
+size_t intersect_32v2(NodeID* A, NodeID* B, size_t totalA, size_t totalB) {
+  size_t count = 0;
+  size_t begin_a = 0, begin_b = 0;
+  // cout << "Begin intersect for " << totalA << " " << totalB << "\n";
+  // for(int i = 0; i < totalA; i++){
+  //   cout << "A" << *(A + i);
+    
+  // }
+  // cout << "\n";
+  // for(int i = 0; i < totalB; i++){
+  //   cout << "B" << *(B + i);
+    
+  // }
+
+  // cout << "End first" << "\n";
+
+  size_t floorA = (totalA/4)*4;
+  size_t floorB = (totalB/4)*4;
+
+  while (begin_a < floorA && begin_b < floorB ) {
+    __m128i v_a = _mm_loadu_si128((__m128i*)(A + begin_a));
+    __m128i v_b = _mm_loadu_si128((__m128i*)(B + begin_b));
+
+    __m128i res_v = _mm_cmpestrm(v_b, 4, v_a, 4,
+    _SIDD_UWORD_OPS|_SIDD_CMP_EQUAL_ANY|_SIDD_BIT_MASK);
+
+    int r = _mm_extract_epi32(res_v, 0);
+    
+    //cout << "FOund: " << _mm_popcnt_u32(r) << '\n';
+    size_t a_last = _mm_extract_epi16(v_a, 3);
+    size_t b_last = _mm_extract_epi16(v_b, 3);
+    begin_a += ( a_last <= b_last ) * 4;
+    begin_b += ( a_last > b_last ) * 4;
+    
+    count += _mm_popcnt_u32(r);
+
+  }
+
+    // intersect the tail using scalar intersection
+  while (begin_a < totalA && begin_b < totalB) {
+
+    if (*(A + begin_a) < *(B + begin_b)) {
+      begin_a++;
+    } 
+    else if (*(A + begin_a) > *(B + begin_b)) {
+      begin_b++;
+    } 
+    else {
+      count++;
+      begin_a++;
+      begin_b++;
+    }
+  }
+  
+
+
+
+  return count;
+
+
+}
+
+struct tempResult
+{
+     size_t count;
+     size_t a_increment;
+     size_t b_increment;
+};
+
+tempResult inline naive_comparison(NodeID* A, NodeID* B, size_t totalA, size_t totalB){
+  size_t count = 0;
+  size_t begin_a = 0;
+  size_t begin_b = 0;
+      // intersect the tail using scalar intersection
+  while (begin_a < totalA && begin_b < totalB) {
+
+    if (*(A + begin_a) < *(B + begin_b)) {
+      begin_a++;
+    } 
+    else if (*(A + begin_a) > *(B + begin_b)) {
+      begin_b++;
+    } 
+    else {
+      count++;
+      begin_a++;
+      begin_b++;
+    }
+  }
+  
+  tempResult result = {count, begin_a, begin_b};
+  return result;
+
+}
+
+size_t inline intersect_32(NodeID* A, NodeID* B, size_t totalA, size_t totalB) {
+  size_t count = 0;
+  size_t begin_a = 0, begin_b = 0;
+  // cout << "Begin intersect for " << totalA << " " << totalB << "\n";
+  // for(int i = 0; i < totalA; i++){
+  //   cout << "A" << *(A + i);
+    
+  // }
+  // cout << "\n";
+  // for(int i = 0; i < totalB; i++){
+  //   cout << "B" << *(B + i);
+    
+  // }
+
+  // cout << "End first" << "\n";
+
+  size_t floorA = (totalA/8)*8;
+  size_t floorB = (totalB/8)*8;
+
+  while (begin_a < floorA && begin_b < floorB ) {
+    __m128i v_a_first= _mm_loadu_si128((__m128i*)(A + begin_a));
+    __m128i v_b_first = _mm_loadu_si128((__m128i*)(B + begin_b));
+    __m128i v_a_second= _mm_loadu_si128((__m128i*)(A + begin_a + 4));
+    __m128i v_b_second = _mm_loadu_si128((__m128i*)(B + begin_b + 4));
+
+    __m128i a_high = _mm_setr_epi16(high16(_mm_extract_epi32(v_a_first, 0)),
+                                    high16(_mm_extract_epi32(v_a_first, 1)),
+                                    high16(_mm_extract_epi32(v_a_first, 2)),
+                                    high16(_mm_extract_epi32(v_a_first, 3)),
+                                    high16(_mm_extract_epi32(v_a_second, 0)),
+                                    high16(_mm_extract_epi32(v_a_second, 1)),
+                                    high16(_mm_extract_epi32(v_a_second, 2)),
+                                    high16(_mm_extract_epi32(v_a_second, 3)));
+    __m128i b_high = _mm_setr_epi16(high16(_mm_extract_epi32(v_b_first, 0)),
+                                    high16(_mm_extract_epi32(v_b_first, 1)),
+                                    high16(_mm_extract_epi32(v_b_first, 2)),
+                                    high16(_mm_extract_epi32(v_b_first, 3)),
+                                    high16(_mm_extract_epi32(v_b_second, 0)),
+                                    high16(_mm_extract_epi32(v_b_second, 1)),
+                                    high16(_mm_extract_epi32(v_b_second, 2)),
+                                    high16(_mm_extract_epi32(v_b_second, 3)));
+
+    __m128i res_v_high = _mm_cmpestrm(b_high, 8, a_high, 8,
+    _SIDD_UWORD_OPS|_SIDD_CMP_EQUAL_ANY|_SIDD_UNIT_MASK);
+
+    if (!(bool)_mm_testz_si128(res_v_high,res_v_high)){
+
+      tempResult val = naive_comparison(A+begin_a, B+begin_b, 8, 8);
+      
+      count += val.count;
+      begin_a += val.a_increment;
+      begin_b += val.b_increment;
+    } else {
+      size_t a_last = _mm_extract_epi16(v_a_second, 7);
+      size_t b_last = _mm_extract_epi16(v_b_second, 7);
+      begin_a += ( a_last <= b_last ) * 8;
+      begin_b += ( a_last > b_last ) * 8;
+
+    }
+  }
+
+    // intersect the tail using scalar intersection
+  while (begin_a < totalA && begin_b < totalB) {
+
+    if (*(A + begin_a) < *(B + begin_b)) {
+      begin_a++;
+    } 
+    else if (*(A + begin_a) > *(B + begin_b)) {
+      begin_b++;
+    } 
+    else {
+      count++;
+      begin_a++;
+      begin_b++;
+    }
+  }
+  return count;
+
+}
+
+size_t intersect_16(NodeID* A, NodeID* B, size_t totalA, size_t totalB) {
+  size_t count = 0;
+  size_t begin_a = 0, begin_b = 0;
+  // cout << "Begin intersect for " << totalA << " " << totalB << "\n";
+  // for(int i = 0; i < totalA; i++){
+  //   cout << "A" << *(A + i);
+    
+  // }
+  // cout << "\n";
+  // for(int i = 0; i < totalB; i++){
+  //   cout << "B" << *(B + i);
+    
+  // }
+
+  // cout << "End first" << "\n";
+
+  size_t floorA = (totalA/8)*8;
+  size_t floorB = (totalB/8)*8;
+
+  while (begin_a < floorA && begin_b < floorB ) {
+    __m128i v_a = _mm_loadu_si128((__m128i*)(A + begin_a));
+    __m128i v_b = _mm_loadu_si128((__m128i*)(B + begin_b));
+    print_m128(v_a, 'a');
+    print_m128(v_b, 'b');
+
+    __m128i res_v = _mm_cmpestrm(v_b, 8, v_a, 8,
+    _SIDD_UWORD_OPS|_SIDD_CMP_EQUAL_ANY|_SIDD_BIT_MASK);
+    print_m128(res_v, 'r');
+    int r = _mm_extract_epi32(res_v, 0);
+    
+    //cout << "FOund: " << _mm_popcnt_u32(r) << '\n';
+    size_t a_last = _mm_extract_epi16(v_a, 7);
+    size_t b_last = _mm_extract_epi16(v_b, 7);
+    begin_a += ( a_last <= b_last ) * 8;
+    begin_b += ( a_last > b_last ) * 8;
+    
+    count += _mm_popcnt_u32(r);
+
+  }
+
+    // intersect the tail using scalar intersection
+  while (begin_a < totalA && begin_b < totalB) {
+
+    if (*(A + begin_a) < *(B + begin_b)) {
+      begin_a++;
+    } 
+    else if (*(A + begin_a) > *(B + begin_b)) {
+      begin_b++;
+    } 
+    else {
+      count++;
+      begin_a++;
+      begin_b++;
+    }
+  }
+
+
+  return count;
+
+
+}
+
+size_t OrderedCountBinarySIMD(const Graph &g){
   size_t total = 0;
   #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
-  for (NodeID u=0; u < g.num_nodes(); u++) {
+  for(NodeID u = 0; u < g.num_nodes(); u++){
     size_t totalDegreeU = g.out_degree(u);
-    size_t binaryCount = 0;
-    size_t otherCount = 0;
-    for (NodeID v : g.out_neigh(u)) {
-      if (v > u)
-        break;
-      auto it = g.out_neigh(u).begin();
-      auto ref = g.out_neigh(u).begin();
-      auto end = g.out_neigh(u).end();
-      auto totalDegreeV = g.out_degree(v);
+
+    for(NodeID v: g.out_neigh(u)){
+      if (v > u) break;
+      auto it_u = g.out_neigh(u).begin();
       auto it_v = g.out_neigh(v).begin();
-      //if the relative size is small, we perform binary search
-      //TODO there is a double counting issue
-      if (totalDegreeU > 1000 && totalDegreeU < 0.2*totalDegreeV){
-        int start = 0;
-        int prevStart = 0;
-        for (NodeID u_neighbor : g.out_neigh(u)) {
-          if (u_neighbor > u)
-            break;
-
-          start = BinarySearch(it_v, start, totalDegreeV, u_neighbor);
-          
-          if (start >= 0) {
-            prevStart = start;
-            binaryCount++;    
-
-          }
-          else {
-            start = prevStart;
-          }
-
-        }
- 
-      } 
-      //if not, we just do normal set intersection
-      else {
-        
-        //This is multi increment
-        for (NodeID w : g.out_neigh(v)) {
-          if (w > v)
-            break;
-          // we increment by 2 to make sure we skip unneccesary checks 
-          while (*it < w){
-            it += 2;
-
-          }
-          // avoid out of bound problem
-          if (it >= end){
-            it = end - 1;
-          }
-
-
-          if(*it == w){
-            otherCount++;
-          } 
-          else {
-            //roll back by 1
-            it--;
-            if(it >= ref){
-              if(*it == w){
-                otherCount++;
-              }
-            }
-            it++;
-
-          }
-
-        }
-      }
+      size_t totalDegreeV = g.out_degree(v);
+      total += intersect_32(it_u, it_v, totalDegreeU, totalDegreeV);
 
     }
 
-    total += (binaryCount >> 1) + otherCount;
+   
+
+    
   }
- 
-  return total;
+  return total/3;
   
 }
+
+// size_t OrderedCountBinary(const Graph &g){
+//   size_t total = 0;
+//   #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
+//   for (NodeID u=0; u < g.num_nodes(); u++) {
+//     size_t totalDegreeU = g.out_degree(u);
+//     for (NodeID v : g.out_neigh(u)) {
+//       if (v > u)
+//         break;
+//       auto it = g.out_neigh(u).begin();
+//       auto ref = g.out_neigh(u).begin();
+//       auto end = g.out_neigh(u).end();
+//       //This is multi increment
+//       for (NodeID w : g.out_neigh(v)) {
+//         if (w > v)
+//           break;
+//         // we increment by 2 to make sure we skip unneccesary checks 
+//         while (*it < w){
+//           it += 2;
+
+//         }
+//         // avoid out of bound problem
+//         if (it >= end){
+//           it = end - 1;
+//         }
+
+
+//         if(*it == w){
+//           total++;
+//         } 
+//         else {
+//           //roll back by 1
+//           it--;
+//           if(it >= ref){
+//             if(*it == w){
+//               total++;
+//             }
+//           }
+//           it++;
+
+//         }
+
+//       }
+//       }
+
+
+
+    
+//   }
+ 
+//   return total;
+  
+// }
 
 size_t OrderedCount(const Graph &g) {
   size_t total = 0;
@@ -209,9 +448,9 @@ bool WorthRelabelling(const Graph &g) {
 // uses heuristic to see if worth relabeling
 size_t Hybrid(const Graph &g) {
   if (WorthRelabelling(g))
-    return OrderedCountBinary(Builder::RelabelByDegree(g));
+    return OrderedCountBinarySIMD(Builder::RelabelByDegree(g));
   else
-    return OrderedCountBinary(g);
+    return OrderedCountBinarySIMD(g);
 }
 
 
@@ -255,4 +494,6 @@ int main(int argc, char* argv[]) {
   }
   BenchmarkKernel(cli, g, Hybrid, PrintTriangleStats, TCVerifier);
   return 0;
+
+
 }

@@ -1,6 +1,6 @@
 # See LICENSE.txt for license details.
 
-CXX_FLAGS += -std=c++11 -O3 -Wall -g -msse4.2
+CXX_FLAGS += -std=c++11 -O3 -Wall -g -msse4.2 -mavx
 PAR_FLAG = -fopenmp
 
 ifneq (,$(findstring icpc,$(CXX)))
@@ -13,7 +13,7 @@ ifneq (,$(findstring sunCC,$(CXX)))
 endif
 
 ifeq ($(DEBUG), 1)
-	CXX_FLAGS = -std=c++11 -O0 -Wall -g
+	CXX_FLAGS = -std=c++11 -O0 -Wall -g -msse4.2
 endif
 
 ifneq ($(SERIAL), 1)
