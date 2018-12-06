@@ -18,14 +18,14 @@ endif
 
 ifneq ($(SERIAL), 1)
 	CXX_FLAGS += $(PAR_FLAG)
-endif 
+endif
 
 ifeq ($(CILK), 1)
     CXX_FLAGS -= $(PAR_FLAG)
 	CXX_FLAGS += -fcilkplus -lcilkrts -O2 -DCILK  -DBYTERLE
 endif
 
-KERNELS = bc bfs cc cc_sv pr sssp tc
+KERNELS = bc bfs cc cc_sv pr sssp tc tc_original tc_multi tc_hiroshi
 SUITE = $(KERNELS) converter
 
 .PHONY: all
