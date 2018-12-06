@@ -228,7 +228,7 @@ size_t inline intersect_32(NodeID* A, NodeID* B, size_t totalA, size_t totalB) {
                                     high16(_mm_extract_epi32(v_b_second, 3)));
 
     __m128i res_v_high = _mm_cmpestrm(b_high, 8, a_high, 8,
-    _SIDD_UWORD_OPS|_SIDD_CMP_EQUAL_ANY|_SIDD_UNIT_MASK);
+    _SIDD_UWORD_OPS|_SIDD_CMP_EQUAL_ANY|_SIDD_BIT_MASK);
 
     if (!(bool)_mm_testz_si128(res_v_high,res_v_high)){
 
@@ -240,7 +240,8 @@ size_t inline intersect_32(NodeID* A, NodeID* B, size_t totalA, size_t totalB) {
     } else {
       size_t a_last = _mm_extract_epi16(v_a_second, 7);
       size_t b_last = _mm_extract_epi16(v_b_second, 7);
-      begin_a += ( a_last <= b_last ) * 8;
+
+      begin_a += ( a_last < b_last ) * 8;
       begin_b += ( a_last > b_last ) * 8;
 
     }
