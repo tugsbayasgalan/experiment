@@ -100,7 +100,7 @@ size_t inline intersect_hiroshi(NodeID* A, NodeID* B, size_t totalA, size_t tota
     size_t begin_b = 0;
     size_t count = 0;
 
-    while (begin_a + 2 < totalA && begin_b + 2 < totalB) {
+    while (true) {
     //while(1) {
         NodeID Adat0 = *(A + begin_a);
         NodeID Adat1 = *(A + begin_a + 1);
@@ -144,13 +144,13 @@ size_t inline intersect_hiroshi(NodeID* A, NodeID* B, size_t totalA, size_t tota
         else goto advanceA;
         advanceA:
             begin_a+=3;
-            if (begin_a >= totalA) { break; } else { continue; }
+            if (begin_a >= totalA-2) { break; } else { continue; }
         advanceB:
             begin_b+=3;
-            if (begin_b >= totalB) { break; } else { continue; }
+            if (begin_b >= totalB-2) { break; } else { continue; }
         advanceAB:
             begin_a+=3; begin_b+=3;
-            if (begin_a >= totalA || begin_b >= totalB) { break; }
+            if (begin_a >= totalA-2 || begin_b >= totalB-2) { break; }
     }
 
     // intersect the tail using scalar intersection
@@ -196,48 +196,33 @@ size_t OrderedCountBinarySIMD(const Graph &g){
          parallel_count += intersect_hiroshi(it_u, it_v, totalDegreeU, totalDegreeV);
       }
       else {
+          //This is multi increment
           for (NodeID w : g.out_neigh(v)) {
             if (w > v)
               break;
-            while (*it_u < w)
-              it_u++;
-            if (w == *it_u)
+
+            while (*it_u < w){
+              it_u += 2;
+            }
+
+            if (it_u >= end){
+              it_u = end - 1;
+            }
+            if(*it_u == w){
               naive_count++;
+            }
+            else {
+              it_u -= 1;
+              if(it_u >= ref){
+                if(*it_u == w){
+                  naive_count++;
+                }
+              }
+              it_u++;
+
+            }
+
           }
-          // //This is multi increment
-          // for (NodeID w : g.out_neigh(v)) {
-          //   if (w > v)
-          //     break;
-          //
-          //   while (*it_u < w){
-          //     it_u += 3;
-          //   }
-          //
-          //   if (it_u >= end){
-          //     it_u = end - 1;
-          //   }
-          //   if(*it_u == w){
-          //     total++;
-          //   }
-          //   else {
-          //     it_u -= 2;
-          //     if(it_u >= ref){
-          //       if(*it_u == w){
-          //         total++;
-          //       }
-          //     }
-          //     it_u++;
-          //     if(it_u >= ref){
-          //       if(*it_u == w){
-          //         total++;
-          //       }
-          //     }
-          //     it_u++;
-          //
-          //
-          //   }
-          //
-          // }
 
       }
 
