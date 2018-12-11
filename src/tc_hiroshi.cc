@@ -6,10 +6,6 @@
 #include <iostream>
 #include <vector>
 #include <fstream>
-//#include <emmintrin.h>
-#include <x86intrin.h>
-#include <smmintrin.h>
-
 #include "benchmark.h"
 #include "builder.h"
 #include "command_line.h"
@@ -49,65 +45,22 @@ to relabel the graph, we use the heuristic in WorthRelabelling.
 
 using namespace std;
 
-
-void print_m128(__m128i value, char c) {
-    uint16_t *val = (uint16_t*) &value;
-    for(int i = 0; i < 8; i++){
-      cout << c << val[i];
-
-    }
-    cout << '\n';
-
-}
-
-
-uint16_t high16(uint32_t x) { return (uint16_t)((x >> 16) << 16); }
-uint16_t low16(uint32_t x) { return (uint16_t)((x << 16) >> 16); }
-
-struct tempResult
-{
-     size_t count;
-     size_t a_increment;
-     size_t b_increment;
-};
-
-tempResult inline naive_comparison(NodeID* A, NodeID* B, size_t totalA, size_t totalB){
-  size_t count = 0;
-  size_t begin_a = 0;
-  size_t begin_b = 0;
-      // intersect the tail using scalar intersection
-  while (begin_a < totalA && begin_b < totalB) {
-    if (*(A + begin_a) < *(B + begin_b)) {
-      begin_a++;
-    }
-    else if (*(A + begin_a) > *(B + begin_b)) {
-      begin_b++;
-    }
-    else {
-      count++;
-      begin_a++;
-      begin_b++;
-    }
-  }
-
-  tempResult result = {count, begin_a, begin_b};
-  return result;
-
-}
-
-size_t inline intersect_hiroshi(NodeID* A, NodeID* B, size_t totalA, size_t totalB) {
+size_t inline intersect_hiroshi(NodeID* A, NodeID* B, size_t totalA, size_t totalB, NodeID reference) {
     size_t begin_a = 0;
     size_t begin_b = 0;
     size_t count = 0;
 
     while (true) {
-    //while(1) {
-        NodeID Adat0 = *(A + begin_a);
-        NodeID Adat1 = *(A + begin_a + 1);
-        NodeID Adat2 = *(A + begin_a + 2);
         NodeID Bdat0 = *(B + begin_b);
         NodeID Bdat1 = *(B + begin_b + 1);
         NodeID Bdat2 = *(B + begin_b + 2);
+        //this ensures we are not double counting
+        if (Bdat2 > reference) break;
+
+        NodeID Adat0 = *(A + begin_a);
+        NodeID Adat1 = *(A + begin_a + 1);
+        NodeID Adat2 = *(A + begin_a + 2);
+
         if (Adat0 == Bdat2) {
             count++;
             goto advanceB; // no more pair
@@ -143,7 +96,7 @@ size_t inline intersect_hiroshi(NodeID* A, NodeID* B, size_t totalA, size_t tota
         else if (Adat2 > Bdat2) goto advanceB;
         else goto advanceA;
         advanceA:
-            begin_a+=3;
+            begin_a += 3;
             if (begin_a >= totalA-2) { break; } else { continue; }
         advanceB:
             begin_b+=3;
@@ -155,6 +108,9 @@ size_t inline intersect_hiroshi(NodeID* A, NodeID* B, size_t totalA, size_t tota
 
     // intersect the tail using scalar intersection
   while (begin_a < totalA && begin_b < totalB) {
+
+    //stops when w > v
+    if(*(B + begin_b) > reference) break;
 
     if (*(A + begin_a) < *(B + begin_b)) {
       begin_a++;
@@ -180,11 +136,6 @@ size_t OrderedCountBinarySIMD(const Graph &g){
   #pragma omp parallel for reduction(+ : total) schedule(dynamic, 64)
   for(NodeID u = 0; u < g.num_nodes(); u++){
     size_t totalDegreeU = g.out_degree(u);
-
-    size_t parallel_count = 0;
-    size_t naive_count = 0;
-
-
     for(NodeID v: g.out_neigh(u)){
       if (v > u) break;
       auto it_u = g.out_neigh(u).begin();
@@ -192,47 +143,51 @@ size_t OrderedCountBinarySIMD(const Graph &g){
       auto end = g.out_neigh(u).end();
       auto it_v = g.out_neigh(v).begin();
       size_t totalDegreeV = g.out_degree(v);
-      if (totalDegreeV > 100000 && totalDegreeU > 100000 && totalDegreeU > 0.5*totalDegreeV){
-         parallel_count += intersect_hiroshi(it_u, it_v, totalDegreeU, totalDegreeV);
+
+      if (totalDegreeV > 100 && totalDegreeU > 100 && totalDegreeU > 0.05*totalDegreeV){
+        total += intersect_hiroshi(it_u, it_v, totalDegreeU, totalDegreeV, v);
       }
       else {
-          //This is multi increment
-          for (NodeID w : g.out_neigh(v)) {
+        //Increments by 3
+        for (NodeID w : g.out_neigh(v)) {
             if (w > v)
               break;
 
             while (*it_u < w){
-              it_u += 2;
+              it_u += 3;
             }
 
+            //if exceeds the boundary, set it at the boundary
             if (it_u >= end){
               it_u = end - 1;
             }
+
             if(*it_u == w){
-              naive_count++;
+              total++;
             }
             else {
-              it_u -= 1;
+              //rollback by 2 to make sure we are not skipping any intersections
+              it_u -= 2;
               if(it_u >= ref){
                 if(*it_u == w){
-                  naive_count++;
+                  total++;
                 }
               }
               it_u++;
-
+              if(it_u >= ref){
+                if(*it_u == w){
+                  total++;
+                }
+              }
+              it_u++;
             }
-
           }
-
       }
-
 
     }
 
-    total += (parallel_count/3 + naive_count);
-
   }
-  return total ;
+  return total;
 
 }
 

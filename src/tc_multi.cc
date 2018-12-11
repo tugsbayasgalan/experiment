@@ -60,7 +60,7 @@ long int inline BinarySearch(NodeID* it_begin, long int start, size_t total, Nod
 
     if (current < target){
       left = medium + 1;
-    } 
+    }
 
     else {
       right = medium - 1;
@@ -100,7 +100,7 @@ size_t OrderedCountBinary(const Graph &g){
         }
         if(*it == w){
           total++;
-        } 
+        }
         else {
           it -= 2;
           if(it >= ref){
@@ -122,9 +122,9 @@ size_t OrderedCountBinary(const Graph &g){
       }
     }
   }
- 
+
   return total;
-  
+
 }
 
 size_t OrderedCount(const Graph &g) {
